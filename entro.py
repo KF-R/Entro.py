@@ -15,13 +15,14 @@ import random, math
 pygame.init()
 pygame.mixer.init()
 
-TEST_SPELL = 36
+# TEST_SPELL = 36
 
+# TODO: Wizard should lose shadow after attacking or ranged attacking
 # TODO: 'Bonus' engagement attack if ending movement engaged
 # TODO: Allow ranged attackers to attack after successfully attacking and/or being mounted
 # TODO: Finish flight
 # TODO: spell failure
-# TODO: sound
+# TODO: finish sound
 # TODO: Primitive AI: much like the original, lots of random
 # TODO: AI: Describe game state through OpenAI API calls to fetch spell selections, spell casting and movement decisions from GPT-4 
 # TODO: Fix creations dictlist to be more consistent with wizards dictlist
@@ -70,11 +71,10 @@ showBases = True
 highlightWizard = 0
 turn = 1
 
-SOUND_SET = [pygame.mixer.Sound('sound/S60-key_bloop.mp3'), pygame.mixer.Sound('sound/S10-tick.mp3'), pygame.mixer.Sound('sound/spell_success.mp3')]
-SND_KEY = SOUND_SET[0]
-SND_TICK = SOUND_SET[1]
-SND_SUCCESS = SOUND_SET[2]
-
+SOUND_SET = [pygame.mixer.Sound('sound/S60-key_bloop.mp3'), pygame.mixer.Sound('sound/S10-tick.mp3'), 
+            pygame.mixer.Sound('sound/spell_success.mp3'), pygame.mixer.Sound('sound/engaged.mp3'),
+            pygame.mixer.Sound('sound/sound_effect_22-undead.mp3') ]
+SND_KEY, SND_TICK, SND_SUCCESS, SND_ENGAGED, SND_UNDEAD = SOUND_SET[:5]
 sound_channels = {}
 sounds = []
 
@@ -97,7 +97,7 @@ def play_sound():
             print("No available channel to play sound.")
 
 def check_engagement(activeObject):
-    global wizards, creations, messageText
+    global wizards, creations, messageText, sounds
     alreadyEngaged = activeObject['engaged']
     neighbours = get_all_neighbours(wizards + creations, activeObject['x'], activeObject['y'])
     manoeuvre_rating = activeObject['manvr'] if is_wizard(activeObject) else activeObject['data']['mnv']
@@ -106,7 +106,7 @@ def check_engagement(activeObject):
         if activeObject['owner'] == neighbour['owner']:
             # print(f"Friendlies don't cause engagements ({neighbour['name']})")
             continue
-        if string_in_object(neighbour, F_STRUCT) or string_in_object(neighbour, F_SPREADS):
+        if string_in_object(neighbour, F_STRUCT) or string_in_object(neighbour, F_SPREADS) or string_in_object(neighbour, F_EXPIRES_SPELL):
             # print("Structures and spreaders don't cause engagements")
             continue
                 
@@ -115,6 +115,7 @@ def check_engagement(activeObject):
 
         if roll < manoeuvre_rating and (activeObject['owner'] != neighbour['owner']):
             messageText = "ENGAGED TO ENEMY"
+            sounds.append(SND_ENGAGED)
             # print(f"Result: True")
             return True
 
@@ -624,7 +625,7 @@ def adjacent_tree_check(x,y):
 
 def cast_attempt():
     buffs = ['magic_sword_spell', 'magic_knife_spell', 'magic_armour_spell', 'magic_shield_spell', 'magic_wings_spell', 'magic_bow_spell']
-    global cursor_pos, wizards, current_wizard, creations, messageText, animations, worldAlignment, selection
+    global cursor_pos, wizards, current_wizard, creations, messageText, animations, worldAlignment, selection, sounds
 
     def spell_succeeds(count: int = 1):
         global wizards, worldAlignment
@@ -948,7 +949,7 @@ def ranged_attack(target, x0: int, y0: int, attack_stat: int, magical: bool = Fa
     return
 
 def move(activeObject, source_x, source_y, dest_x, dest_y):
-    global creations, wizards, rangedCombatTime, messageText, moves_remaining, selection, cursor_type
+    global creations, wizards, rangedCombatTime, messageText, moves_remaining, selection, cursor_type, sounds
 
     attack_stat, activeIsMount, obstructionRider, mounting = None, False, None, False
     obstruction = get_obstruction(dest_x, dest_y, activeObject)
@@ -969,8 +970,9 @@ def move(activeObject, source_x, source_y, dest_x, dest_y):
             # Can not attack allies unless engulfers
             return False   
 
-        elif string_in_object(obstruction, F_UNDEAD) and not (activeObject['armed'] or string_in_object(activeObject, F_UNDEAD)):
+        elif string_in_object(obstruction, F_UNDEAD) and not (activeObject.get('armed') or string_in_object(activeObject, F_UNDEAD)):
             messageText = 'UNDEAD-CANNOT BE ATTACKED'
+            sounds.append(SND_UNDEAD)
             return False    # Not equipped to attack Undead
         
         else:
@@ -1021,6 +1023,7 @@ def move(activeObject, source_x, source_y, dest_x, dest_y):
         if activeObject['engaged']: # Can only move into vacant cells if not engaged
             print(f"{activeObject['name']} can not move to empty cell because it is engaged")
             messageText = "ENGAGED TO ENEMY"
+            sounds.append(SND_ENGAGED)
             return False
 
     # Now we continue to move into the destination cell, ending move as appropriate
