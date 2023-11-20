@@ -3,6 +3,7 @@ The 40th anniversary of Julian Gollop's seminal Chaos: Battle of Wizards is fast
 
 ## Keys
 Arena movement, casting and ending turn mimic the original:
+<img src="https://github.com/KF-R/Entro.py/assets/6677966/fba8f056-fd94-4126-bf5f-c43fe12f1dfd" width="480px" align="right">
 ```
 QWE            
 A D  : cursor movement 
