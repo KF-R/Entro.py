@@ -20,6 +20,7 @@ K: Cancel casting or movement
 0: End turn
 ```
 <hr/>
+
 Additionally the number keys 2-8 will toggle frame highlights for the corresponding wizard
 and the TAB key will toggle colour-coded bases.
 
