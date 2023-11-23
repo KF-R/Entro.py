@@ -7,7 +7,8 @@ This is a humble hobbyist Python tribute.
 ## Keys
 Arena movement, casting and ending turn mimic the original:
 
-<img src="https://github.com/KF-R/Entro.py/assets/6677966/fba8f056-fd94-4126-bf5f-c43fe12f1dfd" width="240px" align="right">
+<img src="https://github.com/KF-R/Entro.py/assets/6677966/fba8f056-fd94-4126-bf5f-c43fe12f1dfd" width="240px" align="left">
+<img src="https://github.com/KF-R/Entro.py/assets/6677966/41f0d51d-6fc5-4597-bf38-ed1a993f9abd" width="240px" align="right">
 
 ```
 QWE            
@@ -23,4 +24,4 @@ Additionally the number keys 2-8 will toggle frame highlights for the correspond
 and the TAB key will toggle colour-coded bases.
 
 
-<img src="https://github.com/KF-R/Entro.py/assets/6677966/41f0d51d-6fc5-4597-bf38-ed1a993f9abd" width="240px" align="right">
+
