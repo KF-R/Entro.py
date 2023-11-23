@@ -19,7 +19,7 @@ wizards = [
         'palette': 1 + (hash(4*i) % 7),
         # 'frame_set': [('modwizard0', RED), ('modwizard1', GREEN), ('modwizard2', BLUE)],
         'frame_set': None,
-        'level': 4,
+        'level': 0,
         'combat': 1,
         'rangedCombat': 0,
         'rangedCombatRange': 0,
