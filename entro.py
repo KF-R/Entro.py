@@ -17,6 +17,11 @@ pygame.mixer.init()
 
 # TEST_SPELL = 36
 
+# TODO: Fix multicast shadow wood
+# TODO: Fix meditate CTD
+# TODO: Friendly magic trees are causing engagement
+# TODO: Dismounting wizards that cancel their move should remount automatically
+# TODO: Dead wizards shouldn't get turns
 # TODO: 'Bonus' engagement attack if ending movement engaged
 # TODO: Allow ranged attackers to attack after successfully attacking and/or being mounted
 # TODO: finish sound
@@ -1260,6 +1265,7 @@ def handle_input(event):
                 current_screen = GS_INFO # Examine selected spell
             elif event.key == pygame.K_2:
                 sounds.append(SND_TICK)
+                wizards[current_wizard]['illusion'] = False # Spells are not illusions by default
                 current_screen = GS_SELECT # Select spell from list
             elif event.key == pygame.K_3:
                 sounds.append(SND_TICK)
