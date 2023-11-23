@@ -19,8 +19,6 @@ pygame.mixer.init()
 
 # TODO: 'Bonus' engagement attack if ending movement engaged
 # TODO: Allow ranged attackers to attack after successfully attacking and/or being mounted
-# TODO: Finish flight
-# TODO: spell failure
 # TODO: finish sound
 # TODO: Primitive AI: much like the original, lots of random
 # TODO: AI: Describe game state through OpenAI API calls to fetch spell selections, spell casting and movement decisions from GPT-4 
@@ -325,19 +323,18 @@ def get_alignment_character(ChaosValue: int) -> str:
     elif ChaosValue==0:return '-'
     return '*'
 
-def get_casting_chance(wizard: int, pos: int):
-    global worldAlignment
-    if worldAlignment == 0: chance = wizards[wizard]['spell_book'][pos]['chance']
-    elif have_same_sign(worldAlignment, wizards[wizard]['spell_book'][pos]['law']):
-        # Alignment boost for spells aligned with the world
-        chance = wizards[wizard]['spell_book'][pos]['chance'] + (abs(worldAlignment) // 4)
-        # print(f"chance: {chance * 10}%  World Alignment: {worldAlignment}  Spell Alignment: {wizards[wizard]['spell_book'][pos]['law']})")
-    else:
-        # World alignment will not help with this spell 
-        chance = wizards[wizard]['spell_book'][pos]['chance']
+def get_cast_chance(wizardID: int, spell = None):
+    global worldAlignment, wizards
+    if not spell: # No spell specified; assume selected
+        spell = wizards[wizardID]['selected']
+
+    chance = spell['chance']    
+    if have_same_sign(worldAlignment ,spell['law']):
+        chance = chance + (abs(worldAlignment) // 4)
     
     # Add wizard's ability and clamp 0-9
-    chance = max(0, min(chance + wizards[wizard]['ability'], 9))
+    chance = max(1, min(chance + wizards[wizardID]['ability'], 9))    
+    # print(chance)
     return chance + 1
 
 def get_chance_color(chance: int):
@@ -397,12 +394,12 @@ def prepare_wizards():
     global wizards, num_wizards
     this_wizard = 1
     while this_wizard <= num_wizards:
-        compar = wizards[this_wizard]['level'] # Variable name taken from original assembler label
-        wizards[this_wizard]['combat'] = (random.randint(0, 9) // 2) + 1 + (compar // 2)
-        wizards[this_wizard]['defense'] = (random.randint(0, 9) // 2) + 1 + (compar // 2)
-        wizards[this_wizard]['manvr'] = (random.randint(0, 9) // 2) + 3 + (compar // 4)
+        level = wizards[this_wizard]['level'] 
+        wizards[this_wizard]['combat'] = (random.randint(0, 9) // 2) + 1 + (level // 2)
+        wizards[this_wizard]['defense'] = (random.randint(0, 9) // 2) + 1 + (level // 2)
+        wizards[this_wizard]['manvr'] = (random.randint(0, 9) // 2) + 3 + (level // 4)
         wizards[this_wizard]['magic resistance'] = (random.randint(0, 9) // 4) + 6 
-        wizards[this_wizard]['ability'] = (compar // 2) + random.randint(0, 1)
+        wizards[this_wizard]['ability'] = (level // 2) + random.randint(0, 1)
         wizards[this_wizard]['defeated'] = False
         # All wizards:    
         wizards[this_wizard]['spell_book'] = [spell_list[0],spell_list[1]] # Everyone gets Disbelieve and Meditate
@@ -411,7 +408,7 @@ def prepare_wizards():
             if TEST_SPELL: wizards[this_wizard]['spell_book'] += [spell_list[TEST_SPELL]] # Everyone gets the test spell
         except:
             print("No test spell has been set")
-        wizards[this_wizard]['spell_book'] += [random.choice(spell_list[2:][:-1]) for _ in range( min(20,(random.randint(0,9) // 2) + 10 + compar // 2) )]
+        wizards[this_wizard]['spell_book'] += [random.choice(spell_list[2:][:-1]) for _ in range( min(20,(random.randint(0,9) // 2) + 10 + level // 2) )]
         
         this_wizard += 1    
 
@@ -579,7 +576,7 @@ def attack(target, attack_stat: int, magical: bool = False):
     attack_roll = attack_stat + random.randint(0,6)
     defence_roll = defence + random.randint(0,6)
     print(f"[{target['name']} attacked]   Attacker: {attack_roll}({attack_stat})   Defender: {defence_roll}({defence})   Result: {('Succeeds' if attack_roll >= defence_roll else 'Fails')}")
-    sounds.append(SND_ATTACK)
+    # sounds.append(SND_ATTACK)
     return True if attack_roll >= defence_roll else False
 
 def melee_attack(target, attack_stat: int, magical: bool = False):
@@ -628,10 +625,10 @@ def cast_attempt():
     buffs = ['magic_sword_spell', 'magic_knife_spell', 'magic_armour_spell', 'magic_shield_spell', 'magic_wings_spell', 'magic_bow_spell']
     global cursor_pos, wizards, current_wizard, creations, messageText, animations, worldAlignment, selection, sounds
 
-    def spell_succeeds(count: int = 1):
+    def spell_succeeded(count: int = 1, removeSpell = True):
         global wizards, worldAlignment
         worldAlignment += wizards[current_wizard]['selected']['law']
-        remove_spell(current_wizard, wizards[current_wizard]['selected']['spell_name'])
+        if removeSpell: remove_spell(current_wizard, wizards[current_wizard]['selected']['spell_name'])
         messageText = "SPELL SUCCEEDS"
         wizards[current_wizard]['multicast'] = 0
         wizards[current_wizard]['selected'] = None
@@ -639,11 +636,21 @@ def cast_attempt():
             sounds.append(SND_SUCCESS)
         return
 
-    def spell_fails():
-        remove_spell(current_wizard, wizards[current_wizard]['selected']['spell_name'])
+    def spell_failed(removeSpell = True):
+        if removeSpell: remove_spell(current_wizard, wizards[current_wizard]['selected']['spell_name'])
         messageText = "SPELL FAILS"
         wizards[current_wizard]['selected'] = None
         return
+
+    def spell_test():
+        chance = get_cast_chance(current_wizard)
+        roll = random.randint(0,100)
+        if roll <= chance * 10:
+            print(f"Success ({roll} / {chance * 10}%)")
+            return True
+        else:
+            print(f"Failure ({roll} / {chance * 10}%)")
+            return False
 
     # Range check
     distance = get_distance( [wizards[current_wizard]['x'], wizards[current_wizard]['y']], cursor_pos )
@@ -659,7 +666,6 @@ def cast_attempt():
             return False
 
     if 'disbelieve' in wizards[current_wizard]['selected']['spell_name']:
-        animations.append({'title': 'beam', 'rate': 10, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'dest_x': cursor_pos[0], 'dest_y': cursor_pos[1], 'colour': BRIGHT_WHITE})
         collisions = get_collisions(creations, cursor_pos[0], cursor_pos[1])
         if collisions:
             if collisions[0]['illusion']:
@@ -668,36 +674,43 @@ def cast_attempt():
                 animations.append({'title': 'explosion', 'rate': 30, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("explosion" + str(i), PALETTE[random.randint(1,7)]) for i in range(0,7)], 'destination': None})
                 sounds.append(SND_EXPLOSION)
 
-                spell_succeeds(0)
-            animations.append({'title': 'attack', 'rate': 20, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("attack" + str(i), PALETTE[random.randint(1,7)]) for i in range(1,5)], 'destination': None})
+                spell_succeeded(1, False)
+            else: 
+                spell_failed(False)
 
-        messageText = "SPELL FAILS"
-        wizards[current_wizard]['selected'] = None
-        return True
+            animations.append({'title': 'attack', 'rate': 20, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("attack" + str(i), PALETTE[random.randint(1,7)]) for i in range(1,5)], 'destination': None})
+            animations.append({'title': 'beam', 'rate': 10, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'dest_x': cursor_pos[0], 'dest_y': cursor_pos[1], 'colour': BRIGHT_WHITE})
+
+            return True
+        else: return False
 
     elif 'meditate' in wizards[current_wizard]['selected']['spell_name']:
-        chance = get_casting_chance(current_wizard, 1)
-        print(f"Meditate chance: {chance * 10}%")
-        if (random.randint(0,100) < chance * 10) and len(wizards[current_wizard]['spell_book']) < MAX_SPELLS:
+        # chance = get_cast_chance(current_wizard)
+        # print(f"Meditate chance: {chance * 10}%")
+        if spell_test() and len(wizards[current_wizard]['spell_book']) < MAX_SPELLS:
             wizards[current_wizard]['spell_book'].append(random.choice(spell_list[2:][:-1]))
             animations.append({'title': 'spell', 'rate': 200, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'frame_set': [("attack" + str(i), PALETTE[random.randint(1,15)]) for i in range(1,5)], 'destination': None})
-            spell_succeeds()
+            spell_succeeded(1, False)
         else:
-            messageText = "SPELL FAILS" # Don't call spell_fails() because meditate is permanent
-            wizards[current_wizard]['selected'] = None
+            spell_failed(False)
 
         wizards[current_wizard]['has_moved'] = True
-        # TODO: Set mount's has_moved to True if mounted 
+        # if wizards[current_wizard]['mounted'] == True:
+            # TODO: Set mount's has_moved to True if mounted 
             
         return True
 
     elif 'creature_cast_spell' in wizards[current_wizard]['selected']['spell_name']:
+        if not wizards[current_wizard]['illusion']:
+            if not spell_test():
+                animations.append({'title': 'summon', 'rate': 20, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("twirl" + str(i), PALETTE[random.randint(1,7)]) for i in range(10)] + [('twirl0', BRIGHT_WHITE)], 'destination': None})
+                spell_failed()
+                return True # Even though the spell failed, the attempt has successfully completed
 
         obstructions = [d for d in wizards + creations if d.get('x') == cursor_pos[0] and d.get('y') == cursor_pos[1]]
         if obstructions: 
             print(f"Can't cast over {obstructions[0]['name']}")
             return False
-
 
         animations.append({'title': 'summon', 'rate': 20, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("twirl" + str(i), PALETTE[random.randint(1,7)]) for i in range(10)] + [('twirl0', BRIGHT_WHITE)], 'destination': None})
         animations.append({'title': 'beam', 'rate': 5, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'dest_x': cursor_pos[0], 'dest_y': cursor_pos[1], 'colour': CYAN})
@@ -705,11 +718,17 @@ def cast_attempt():
         create_creation(get_creature_name_from_spell(wizards[current_wizard]['selected']['spell_name']),
             current_wizard, cursor_pos[0], cursor_pos[1], wizards[current_wizard]['illusion'], False)
         
-        spell_succeeds()
+        spell_succeeded()
         return True
 
     elif wizards[current_wizard]['selected']['spell_name'] in buffs:
         # Buff spell
+
+        animations.append({'title': 'spell', 'rate': 10, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'frame_set': [("attack" + str(i), PALETTE[random.randint(1,7)]) for i in range(1,5)], 'destination': None})
+        if not spell_test():
+            spell_failed()
+            return True
+
         if buffs[0] in wizards[current_wizard]['selected']['spell_name']:
             # Sword
             wizards[current_wizard]['frame_set'] = [('modwizard' + str(i), PALETTE[wizards[current_wizard]['palette']]) for i in range(0, 3)]
@@ -749,21 +768,24 @@ def cast_attempt():
             print('uncaught buff')
             return False
 
-        animations.append({'title': 'spell', 'rate': 10, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'frame_set': [("attack" + str(i), PALETTE[random.randint(1,7)]) for i in range(1,5)], 'destination': None})
-        spell_succeeds()
+        spell_succeeded()
         return True
         
     elif 'chaos_law_spell' in wizards[current_wizard]['selected']['spell_name']:
-        spell_succeeds()
+        spell_succeeded()
         return True
     
     elif 'shadow_form_spell' in wizards[current_wizard]['selected']['spell_name']:
+        animations.append({'title': 'spell', 'rate': 10, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'frame_set': [("attack" + str(i), PALETTE[random.randint(1,7)]) for i in range(1,5)], 'destination': None})
+        if not spell_test():
+            spell_failed()
+            return True
+
         wizards[current_wizard]['movement'] = 3
         wizards[current_wizard]['shadow'] = True
         wizards[current_wizard]['frame_set'] = [('', PALETTE[wizards[current_wizard]['palette']]), ('', BLACK)] 
 
-        animations.append({'title': 'spell', 'rate': 10, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'frame_set': [("attack" + str(i), PALETTE[random.randint(1,7)]) for i in range(1,5)], 'destination': None})
-        spell_succeeds()
+        spell_succeeded()
         return True
     
     elif 'lightning_spell' in wizards[current_wizard]['selected']['spell_name']:
@@ -776,10 +798,10 @@ def cast_attempt():
             if attack(collisions[0], attack_stat, True):
                 kill(collisions[0], False)
                 animations.append({'title': 'explosion', 'rate': 30, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("explosion" + str(i), BRIGHT_WHITE) for i in range(0,7)], 'destination': None})
-                spell_succeeds()
+                spell_succeeded()
                 return True
        
-        spell_fails()
+        spell_failed()
         return True
 
     elif 'subversion_spell' in wizards[current_wizard]['selected']['spell_name']:
@@ -788,37 +810,42 @@ def cast_attempt():
         if collisions:
             if get_rider(collisions[0]):
                 print(f"Can't subvert a ridden mount")
-                spell_fails()
+                spell_failed()
                 return True
             
-            collisions[0]['owner'] = current_wizard
-            print(f"{collisions[0]['name']} has defected to {wizards[current_wizard]['name']}!")
-    
-            animations.append({'title': 'attack', 'rate': 20, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("attack" + str(i), PALETTE[wizards[current_wizard]['palette']]) for i in range(1,5)], 'destination': None})
+            if spell_test():
+                collisions[0]['owner'] = current_wizard
+                print(f"{collisions[0]['name']} has defected to {wizards[current_wizard]['name']}!")
+                animations.append({'title': 'attack', 'rate': 20, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("attack" + str(i), PALETTE[wizards[current_wizard]['palette']]) for i in range(1,5)], 'destination': None})
+                spell_succeeded()
+            else:
+                spell_failed()
             
-            spell_succeeds()
             return True
-
-        spell_fails()
-        return True
+    
+        return False
 
     elif 'raise_dead_spell' in wizards[current_wizard]['selected']['spell_name']:
         animations.append({'title': 'beam', 'rate': 1, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'dest_x': cursor_pos[0], 'dest_y': cursor_pos[1], 'colour': MAGENTA})
 
-        collisions = get_collisions(creations, cursor_pos[0], cursor_pos[1])
+        collisions = get_collisions(corpses, cursor_pos[0], cursor_pos[1])
         if collisions:
-            creatures.append(collsion[0])
-            corpses.remove(collision[0])
-            ceatures[-1]['owner'] = current_wizard
-            creatures[-1]['data']['status'].append(F_UNDEAD)
-            print(f"{creatures[-1]['name']} has been raised by {wizards[current_wizard]['name']}!")
 
-            animations.append({'title': 'attack', 'rate': 2, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("attack" + str(i), MAGENTA) for i in range(1,5)], 'destination': None})
-            spell_succeeds()
+            if spell_test():
+
+                creatures.append(collsion[0])
+                corpses.remove(collision[0])
+                ceatures[-1]['owner'] = current_wizard
+                creatures[-1]['data']['status'].append(F_UNDEAD)
+                print(f"{creatures[-1]['name']} has been raised by {wizards[current_wizard]['name']}!")
+
+                animations.append({'title': 'attack', 'rate': 2, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("attack" + str(i), MAGENTA) for i in range(1,5)], 'destination': None})
+                spell_succeeded()
+            else: spell_failed()
+            
             return True
 
-        spell_fails()
-        return True # Spell was succesfully attempted; not necessarily sucessfully cast
+        return False
 
     elif 'wall_spell' in wizards[current_wizard]['selected']['spell_name']:
         castsRemaining = wizards[current_wizard]['multicast']
@@ -827,12 +854,19 @@ def cast_attempt():
         if select_at(cursor_pos[0], cursor_pos[1]) :
             return False
 
+        if not spell_test:
+            animations.append({'title': 'beam', 'rate': 5, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'dest_x': cursor_pos[0], 'dest_y': cursor_pos[1], 'colour': CYAN})
+            castsRemaining = 0
+            spell_failed()
+            return True
+
+
         animations.append({'title': 'summon', 'rate': 20, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("twirl" + str(i), PALETTE[random.randint(1,7)]) for i in range(10)] + [('twirl0', BRIGHT_WHITE)], 'destination': None})
         animations.append({'title': 'beam', 'rate': 5, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'dest_x': cursor_pos[0], 'dest_y': cursor_pos[1], 'colour': CYAN})
         create_creation('wall', current_wizard, cursor_pos[0], cursor_pos[1], False, False)
 
         if castsRemaining <= 1:
-            spell_succeeds()
+            spell_succeeded()
             return True
         else: 
             wizards[current_wizard]['multicast'] -= 1
@@ -843,6 +877,13 @@ def cast_attempt():
         castsRemaining = wizards[current_wizard]['multicast']
         messageText = f"{wizards[current_wizard]['name']}  {clean_label(wizards[current_wizard]['selected']['label'])}" + (f" {wizards[current_wizard]['selected']['distance']}" if wizards[current_wizard]['selected']['distance'] > 0 else "") + (f" ({wizards[current_wizard]['multicast']})" if wizards[current_wizard]['multicast'] > 1 else "") # spell label or blank
         print(f"{messageText}")
+
+        if not spell_test:
+            # Failed
+            if F_EXPIRES_SPELL not in data['status']: animations.append({'title': 'beam', 'rate': 5, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'dest_x': cursor_pos[0], 'dest_y': cursor_pos[1], 'colour': CYAN})
+            castsRemaining = 0
+            spell_failed()
+            return True
 
         creatureName = get_creature_name_from_spell(wizards[current_wizard]['selected']['spell_name'])
         data = get_creature_stats(creatureName)
@@ -877,7 +918,7 @@ def cast_attempt():
                     if castsRemaining <= 0: break
                 if castsRemaining <= 0: break
             
-            spell_succeeds(8)
+            spell_succeeded(8)
             return True
         
         else: # Not a Magic Wood, manual casting is allowed
@@ -895,12 +936,12 @@ def cast_attempt():
             castsRemaining -= 1 
 
             if castsRemaining < 1:
-                spell_succeeds()
+                spell_succeeded()
                 return True
 
             wizards[current_wizard]['multicast'] -= 1
             print(f"Casts remaining: {wizards[current_wizard]['multicast']}")
-            # return False  
+            return True
 
     elif 'dark_power_spell':
         castsRemaining = wizards[current_wizard]['multicast']
@@ -909,6 +950,13 @@ def cast_attempt():
         target = select_at(cursor_pos[0], cursor_pos[1])
         if not target: return False # This spell needs a target
         if string_in_object(target, F_INVULN): return False # This spell can't target walls, castles, fire etc.
+
+        if not spell_test:
+            # Failed
+            castsRemaining = 0
+            spell_failed()
+            return True
+        
         attack_stat = 3 * abs(wizards[current_wizard]['selected']['law'])
         attack_stat += wizards[current_wizard]['ability'] 
 
@@ -917,17 +965,17 @@ def cast_attempt():
             if not is_wizard(target):
                 kill_creation(target, False)
                 animations.append({'title': 'explosion', 'rate': 30, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("explosion" + str(i), BRIGHT_WHITE) for i in range(0,7)], 'destination': None})
-                spell_succeeds()
+                spell_succeeded()
                 return True
             else:
                 kill_wizards_creations(target['owner'])
-                spell_succeeds()
+                spell_succeeded()
                 return True
         else:
             castsRemaining -=1
 
         if castsRemaining < 1:
-            spell_succeeds()
+            spell_succeeded()
             return True
         else: 
             wizards[current_wizard]['multicast'] -= 1
@@ -1360,11 +1408,10 @@ def handle_input(event):
                         rangedCombatTime = False
                     else:
                         # Cancelling a move part way through
+                        midFlight = False
                         moves_remaining = 0
-                        if selection:
-                            for objects in wizards + creations:
-                                if objects['name'] == selection['name'] and objects['x'] == cursor_pos[0] and objects['y'] == cursor_pos[1]:
-                                    objects['has_moved'] = True
+                        if selection: selection['has_moved'] = True
+                        cursor_type = CURSOR_FRAME
                                     
                     selection = None
                     messageText = ''
@@ -1400,10 +1447,24 @@ def handle_input(event):
                             ranged_attack(target, selection['x'], selection['y'], attack_stat)
                             selection = None
                             rangedCombatTime = False
+                            cursor_type = CURSOR_FRAME
+
                         else: # Not ranged combat; must be a flyer
                             selection['engaged'] = check_engagement(selection)
-                            if selection['engaged']: return
+                            if selection['engaged']:
+                                if get_distance([selection['x'], selection['y']], [cursor_pos[0], cursor_pos[1]]) > 1: 
+                                    sounds.append(SND_ENGAGED)
+                                    return False
+                                if not select_at(cursor_pos[0], cursor_pos[1]): 
+                                    sounds.append(SND_ENGAGED)
+                                    return False
+
                             newX, newY = cursor_pos[0], cursor_pos[1]
+                            flightRange = selection['movement'] if is_wizard(selection) else selection['data']['mov']
+                            if get_distance([selection['x'], selection['y']], [cursor_pos[0], cursor_pos[1]]) > flightRange: 
+                                messageText = "OUT OF RANGE"
+                                return False
+
                             move(selection, selection['x'], selection['y'], newX, newY)
                             cursor_type = CURSOR_FRAME
 
@@ -1546,10 +1607,15 @@ def render_select():
 
     sprint(screen, 1, 0, f"{wizards[current_wizard]['name']}'s SPELLS", YELLOW)
     for i in range(0, len(wizards[current_wizard]['spell_book']), 2):
-        sprint(screen, 1, i // 2 + 1, f"{chr(ord('A')+i)}{get_alignment_character(wizards[current_wizard]['spell_book'][i]['law'])}{clean_label(wizards[current_wizard]['spell_book'][i]['label'])}", get_chance_color(get_casting_chance(current_wizard, i)))
-        # Check if there is a next item to avoid IndexError
+        # LEFT column
+        spell = wizards[current_wizard]['spell_book'][i]
+        chanceColour = get_chance_color(get_cast_chance(current_wizard, spell))
+        sprint(screen, 1, i // 2 + 1, f"{chr(ord('A')+i)}{get_alignment_character(wizards[current_wizard]['spell_book'][i]['law'])}{clean_label(wizards[current_wizard]['spell_book'][i]['label'])}", chanceColour)
+        # RIGHT column (Check if there is a next item to avoid IndexError)
         if i + 1 < len(wizards[current_wizard]['spell_book']):
-            sprint(screen, 18, i // 2 + 1, f"{chr(ord('A')+i+1)}{get_alignment_character(wizards[current_wizard]['spell_book'][i+1]['law'])}{clean_label(wizards[current_wizard]['spell_book'][i+1]['label'])}", get_chance_color(get_casting_chance(current_wizard, i + 1)))
+            spell = wizards[current_wizard]['spell_book'][i + 1]
+            chanceColour = get_chance_color(get_cast_chance(current_wizard, spell))
+            sprint(screen, 18, i // 2 + 1, f"{chr(ord('A')+i+1)}{get_alignment_character(wizards[current_wizard]['spell_book'][i+1]['law'])}{clean_label(wizards[current_wizard]['spell_book'][i+1]['label'])}", chanceColour)
     
     if messageText: sprint(screen, 0, ARENA_ROWS + 1, messageText, BRIGHT_YELLOW)
     
@@ -1719,7 +1785,6 @@ def draw_cursor():
         sprite_at(screen, cursor_pos[0], cursor_pos[1], (CURSOR_CORNER if rangedCombatTime else cursor_type ), PALETTE[wizards[current_wizard]['palette']], True)
     else:
         sprite_at(screen, cursor_pos[0], cursor_pos[1], (CURSOR_CORNER if rangedCombatTime else cursor_type ), PALETTE[wizards[current_wizard]['palette']], True)
-
 
 def run_animations_and_creations():
     global animations, creations, newCreations
