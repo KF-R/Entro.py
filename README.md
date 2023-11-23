@@ -1,11 +1,13 @@
 # Entro.py
-<img src="https://github.com/KF-R/Entro.py/assets/6677966/9693b86e-196f-469d-98ac-cc9db00a8ce9" width="240px" align="right">
-The 40th anniversary of Julian Gollop's seminal Chaos: Battle of Wizards is fast approaching.  This is a humble hobbyist Python tribute.
+<img src="https://github.com/KF-R/Entro.py/assets/6677966/9693b86e-196f-469d-98ac-cc9db00a8ce9" width="360px" align="right">
+The 40th anniversary of Julian Gollop's seminal Chaos: Battle of Wizards is fast approaching.  
+This is a humble hobbyist Python tribute.
+
 
 ## Keys
 Arena movement, casting and ending turn mimic the original:
 
-<img src="https://github.com/KF-R/Entro.py/assets/6677966/fba8f056-fd94-4126-bf5f-c43fe12f1dfd" width="480px" align="right">
+<img src="https://github.com/KF-R/Entro.py/assets/6677966/fba8f056-fd94-4126-bf5f-c43fe12f1dfd" width="240px" align="right">
 
 ```
 QWE            
