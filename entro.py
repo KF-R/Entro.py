@@ -17,7 +17,6 @@ pygame.mixer.init()
 
 # TEST_SPELL = 36
 
-# TODO: Wizard should lose shadow after attacking or ranged attacking
 # TODO: 'Bonus' engagement attack if ending movement engaged
 # TODO: Allow ranged attackers to attack after successfully attacking and/or being mounted
 # TODO: Finish flight
@@ -73,8 +72,9 @@ turn = 1
 
 SOUND_SET = [pygame.mixer.Sound('sound/S60-key_bloop.mp3'), pygame.mixer.Sound('sound/S10-tick.mp3'), 
             pygame.mixer.Sound('sound/spell_success.mp3'), pygame.mixer.Sound('sound/engaged.mp3'),
-            pygame.mixer.Sound('sound/sound_effect_22-undead.mp3') ]
-SND_KEY, SND_TICK, SND_SUCCESS, SND_ENGAGED, SND_UNDEAD = SOUND_SET[:5]
+            pygame.mixer.Sound('sound/sound_effect_22-undead.mp3'), pygame.mixer.Sound('sound/sound_effect_11-walk.mp3'),
+            pygame.mixer.Sound('sound/sound_effect_21-selected.mp3'), pygame.mixer.Sound('sound/sound_effect_16-explosion.mp3')]
+SND_KEY, SND_TICK, SND_SUCCESS, SND_ENGAGED, SND_UNDEAD, SND_WALK, SND_SELECTED, SND_EXPLOSION = SOUND_SET[:8]
 sound_channels = {}
 sounds = []
 
@@ -579,6 +579,7 @@ def attack(target, attack_stat: int, magical: bool = False):
     attack_roll = attack_stat + random.randint(0,6)
     defence_roll = defence + random.randint(0,6)
     print(f"[{target['name']} attacked]   Attacker: {attack_roll}({attack_stat})   Defender: {defence_roll}({defence})   Result: {('Succeeds' if attack_roll >= defence_roll else 'Fails')}")
+    sounds.append(SND_ATTACK)
     return True if attack_roll >= defence_roll else False
 
 def melee_attack(target, attack_stat: int, magical: bool = False):
@@ -665,8 +666,9 @@ def cast_attempt():
                 # print(f"Illusion to be destroyed! ({collisions[0]['name']})")
                 kill_creation(collisions[0], False)
                 animations.append({'title': 'explosion', 'rate': 30, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("explosion" + str(i), PALETTE[random.randint(1,7)]) for i in range(0,7)], 'destination': None})
-     
-                spell_succeeds()
+                sounds.append(SND_EXPLOSION)
+
+                spell_succeeds(0)
             animations.append({'title': 'attack', 'rate': 20, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("attack" + str(i), PALETTE[random.randint(1,7)]) for i in range(1,5)], 'destination': None})
 
         messageText = "SPELL FAILS"
@@ -937,6 +939,9 @@ def cast_attempt():
 def is_wizard(object):
     return True if 'spell_book' in object else False 
 
+def is_flyer(object):
+    return object.get('flying') or string_in_object(object, F_FLYING)
+
 def ranged_attack(target, x0: int, y0: int, attack_stat: int, magical: bool = False):
     global creations, wizards, messageText
     animations.append({'title': 'attack', 'rate': 20, 'x': cursor_pos[0], 'y': cursor_pos[1], 'frame_set': [("attack" + str(i), WHITE) for i in range(1,5)], 'destination': None})
@@ -964,6 +969,7 @@ def move(activeObject, source_x, source_y, dest_x, dest_y):
             if (activeObject['owner'] == obstruction['owner']) or (F_MOUNT_ANY in obstruction['data']['status'] and obstructionRider == None):
                 # Friendly mount or empty mount_any
                 activeObject['mounted'] = True # Flag it and continue to the move without attacking
+                moves_remaining = 0
                 mounting = True
 
         elif activeObject['owner'] == obstruction['owner'] and not string_in_object(obstruction, F_ENGULFS):
@@ -985,10 +991,11 @@ def move(activeObject, source_x, source_y, dest_x, dest_y):
             attack_stat = activeObject['combat'] if is_wizard(activeObject) else activeObject['data']['com']
             activeObject['has_moved'] = True
 
+            if is_wizard(activeObject): activeObject['shadow'] = False # Wizards always lose Shadow Form when attacking
             if not melee_attack(obstruction, attack_stat): # Melee Attack Failed
                 print(f"Melee attack failed.")
                 attackRange = activeObject['rangedCombatRange'] if is_wizard(activeObject) else activeObject['data']['rng']
-                if attackRange > 0:  # We can still perform a ranged attack
+                if attackRange > 0: # We can still perform a ranged attack
                     rangedCombatTime = True
                     messageText = f"RANGED COMBAT,RANGE={attackRange}"
                     activeObject['engaged'] = True
@@ -1037,8 +1044,12 @@ def move(activeObject, source_x, source_y, dest_x, dest_y):
             messageText = ''
             return True
 
+    sounds.append(SND_WALK)
     activeObject['x'], activeObject['y'] = dest_x, dest_y
-    moves_remaining -= 1
+    if is_flyer(activeObject):
+        moves_remaining = 0
+        activeObject['has_moved'] = True
+    else: moves_remaining -= 1
     if math.ceil( math.sqrt((dest_x - source_x) ** 2 + (dest_y - source_y) ** 2) ) > 1: moves_remaining -= 0.5
     cursor_pos[0], cursor_pos[1] = dest_x, dest_y
     messageText = f"MOVEMENT POINTS LEFT={math.ceil(moves_remaining)}"
@@ -1118,6 +1129,7 @@ def describe_cell():
 
 def handle_input(event):
     global sounds, cursor_pos, cursor_type, current_screen, messageText, num_wizards, current_wizard, wizards, selection, showBases, moves_remaining, illusion_checking, dismount_checking, rangedCombatTime, highlightWizard
+    midFlight = False
 
     if current_screen == GS_INTRO:
         # Code to execute when current_screen is GS_INTRO
@@ -1256,6 +1268,7 @@ def handle_input(event):
                     dismount_checking = False
                     print(f"{wizards[current_wizard]['name']} is attempting to dismount.")
                     selection = wizards[current_wizard]
+                    sounds.append(SND_SELECTED)
                     moves_remaining = selection['movement']
                     selection['mounted'] = False
                     messageText = f"MOVEMENT POINTS LEFT={moves_remaining}"
@@ -1264,6 +1277,10 @@ def handle_input(event):
                     dismount_checking = False
                     return
                 return
+
+            # Pre-flight checks
+            if selection: midFlight = is_flyer(selection)
+            if midFlight: cursor_type = CURSOR_FLY
 
             if event.key == pygame.K_i and current_screen == GS_INSPECT: current_screen = GS_INFO_ARENA
             elif event.key == pygame.K_TAB and (current_screen == GS_ARENA or current_screen == GS_INSPECT): showBases = not showBases
@@ -1274,56 +1291,56 @@ def handle_input(event):
             elif event.key == pygame.K_q:
                 newX = max(cursor_pos[0] - 1,1)
                 newY = max(cursor_pos[1] - 1,1)
-                if current_screen == GS_ARENA and selection and not rangedCombatTime: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
+                if current_screen == GS_ARENA and selection and not rangedCombatTime and not midFlight: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
                 else: 
                     cursor_pos[0], cursor_pos[1] = newX, newY
                     describe_cell()
             elif event.key == pygame.K_w:
                 newX = cursor_pos[0]
                 newY = max(cursor_pos[1] - 1,1)
-                if current_screen == GS_ARENA and selection and not rangedCombatTime: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
+                if current_screen == GS_ARENA and selection and not rangedCombatTime and not midFlight: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
                 else: 
                     cursor_pos[0], cursor_pos[1] = newX, newY
                     describe_cell()
             elif event.key == pygame.K_e:
                 newX = min(cursor_pos[0] + 1, (ARENA_WIDTH // TILE_SIZE))
                 newY = max(cursor_pos[1] - 1,1)
-                if current_screen == GS_ARENA and selection and not rangedCombatTime: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
+                if current_screen == GS_ARENA and selection and not rangedCombatTime and not midFlight: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
                 else: 
                     cursor_pos[0], cursor_pos[1] = newX, newY
                     describe_cell()
             elif event.key == pygame.K_a:
                 newX = max(cursor_pos[0] - 1,1)
                 newY = cursor_pos[1]
-                if current_screen == GS_ARENA and selection and not rangedCombatTime: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
+                if current_screen == GS_ARENA and selection and not rangedCombatTime and not midFlight: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
                 else: 
                     cursor_pos[0], cursor_pos[1] = newX, newY
                     describe_cell()
             elif event.key == pygame.K_d:
                 newX = min(cursor_pos[0] + 1, (ARENA_WIDTH // TILE_SIZE))
                 newY = cursor_pos[1]
-                if current_screen == GS_ARENA and selection and not rangedCombatTime: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
+                if current_screen == GS_ARENA and selection and not rangedCombatTime and not midFlight: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
                 else: 
                     cursor_pos[0], cursor_pos[1] = newX, newY
                     describe_cell()
             elif event.key == pygame.K_z:
                 newX = max(cursor_pos[0] - 1,1)
                 newY = min(cursor_pos[1] + 1, (ARENA_HEIGHT // TILE_SIZE))
-                if current_screen == GS_ARENA and selection and not rangedCombatTime: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
+                if current_screen == GS_ARENA and selection and not rangedCombatTime and not midFlight: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
                 else: 
                     cursor_pos[0], cursor_pos[1] = newX, newY
                     describe_cell()
             elif event.key == pygame.K_x:
                 newX = cursor_pos[0]
                 newY = min(cursor_pos[1] + 1, (ARENA_HEIGHT // TILE_SIZE))
-                if current_screen == GS_ARENA and selection and not rangedCombatTime: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
+                if current_screen == GS_ARENA and selection and not rangedCombatTime and not midFlight: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
                 else: 
                     cursor_pos[0], cursor_pos[1] = newX, newY
                     describe_cell()
             elif event.key == pygame.K_c:
                 newX = min(cursor_pos[0] + 1, (ARENA_WIDTH // TILE_SIZE))
                 newY = min(cursor_pos[1] + 1, (ARENA_HEIGHT // TILE_SIZE))
-                if current_screen == GS_ARENA and selection and not rangedCombatTime: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
+                if current_screen == GS_ARENA and selection and not rangedCombatTime and not midFlight: move(selection, cursor_pos[0], cursor_pos[1], newX, newY)
                 else: 
                     cursor_pos[0], cursor_pos[1] = newX, newY
                     describe_cell()
@@ -1379,12 +1396,16 @@ def handle_input(event):
                             target = select_at(cursor_pos[0], cursor_pos[1])
                             attack_stat = selection['data']['rcm'] if 'data' in selection else selection['rangedCombat']
                             if target: print(f"{target['name']} is under attack by {selection['name']} ({attack_stat})")
+                            if is_wizard(selection): selection['shadow'] = False # Wizards always lose Shadow Form when attacking
                             ranged_attack(target, selection['x'], selection['y'], attack_stat)
                             selection = None
                             rangedCombatTime = False
                         else: # Not ranged combat; must be a flyer
                             selection['engaged'] = check_engagement(selection)
-                        return
+                            if selection['engaged']: return
+                            newX, newY = cursor_pos[0], cursor_pos[1]
+                            move(selection, selection['x'], selection['y'], newX, newY)
+                            cursor_type = CURSOR_FRAME
 
                     else:
                         # New selection
@@ -1434,7 +1455,9 @@ def handle_input(event):
 
                             print(f"Selection: {selection['name']} with {moves_remaining} moves")
                             messageText = f"MOVEMENT POINTS LEFT={moves_remaining}"
-                            if selection: selection['engaged'] = check_engagement(selection) 
+                            if selection: 
+                                sounds.append(SND_SELECTED)
+                                selection['engaged'] = check_engagement(selection) 
 
                         return
 
@@ -1516,7 +1539,7 @@ def render_menu():
     if wizards[current_wizard]['selected']:
         sprint(screen, 11, 5, f"CHANGE `{(6 if wizards[current_wizard]['illusion'] else 5)}{clean_label(wizards[current_wizard]['selected']['label']).ljust(13)}", CYAN)
 
-    turnString = f"Turn:{turn}.{current_wizard}"
+    turnString = f"Turn {turn}.{current_wizard}"
     sprint(screen, 1 + (ARENA_COLUMNS * 2) - len(turnString),ARENA_ROWS, turnString, YELLOW, False)
 
 def render_select():
@@ -1694,12 +1717,12 @@ def draw_cursor():
         sprite_at(screen, cursor_pos[0], cursor_pos[1], CURSOR_FRAME, PALETTE[wizards[current_wizard]['palette']], True)
     elif get_distance([cursor_pos[0], cursor_pos[1]],[wizards[current_wizard]['x'], wizards[current_wizard]['y']]) > 0:
         sprite_at(screen, cursor_pos[0], cursor_pos[1], (CURSOR_CORNER if rangedCombatTime else cursor_type ), PALETTE[wizards[current_wizard]['palette']], True)
-    else: 
-        pygame.draw.rect(screen, PALETTE[wizards[current_wizard]['palette']], (cursor_pos[0] * TILE_SIZE, cursor_pos[1] * TILE_SIZE, TILE_SIZE, TILE_SIZE), 1)
-    return
+    else:
+        sprite_at(screen, cursor_pos[0], cursor_pos[1], (CURSOR_CORNER if rangedCombatTime else cursor_type ), PALETTE[wizards[current_wizard]['palette']], True)
 
-def draw_animations():
-    global animations
+
+def run_animations_and_creations():
+    global animations, creations, newCreations
     # These animations should be blocking by design i.e. input frozen etc.
 
     def get_point_from_percent(start_point, end_point, n):
@@ -1749,8 +1772,7 @@ def draw_animations():
             pygame.transform.smoothscale(screen, (RENDER_WIDTH, RENDER_HEIGHT), main_screen)
             pygame.display.flip()
         
-    if newCreations and animation['title'] == 'summon':
-        creations.append(newCreations.pop())
+    if newCreations: creations.append(newCreations.pop())
 
     return
 
@@ -1796,13 +1818,9 @@ def render_arena():
     draw_wizards()
     draw_creations()
     draw_cursor()
-    if animations: draw_animations()
+    if animations: run_animations_and_creations()
     if dismount_checking: messageText = "DISMOUNT WIZARD? (Y OR N)"
     if messageText: sprint(screen, 1, ARENA_ROWS + 1.5, messageText, YELLOW)
-
-    # This would be a great time to add those newly created creations to the creations list so they don't appear before their spawn animations
-    # if newCreations:
-    #     creations.append(newCreations.pop())
 
 def render():
     global current_screen
