@@ -17,11 +17,8 @@ pygame.mixer.init()
 
 # TEST_SPELL = 36
 
-# TODO: Fix multicast shadow wood
-# TODO: Fix meditate CTD
 # TODO: Friendly magic trees are causing engagement
-# TODO: Dismounting wizards that cancel their move should remount automatically
-# TODO: Dead wizards shouldn't get turns
+# TODO: Investigate flight bug; (mountable?) flyers sometimes get stuck
 # TODO: 'Bonus' engagement attack if ending movement engaged
 # TODO: Allow ranged attackers to attack after successfully attacking and/or being mounted
 # TODO: finish sound
@@ -345,9 +342,9 @@ def get_cast_chance(wizardID: int, spell = None):
 def get_chance_color(chance: int):
     return PALETTE[2 + (chance // 2)]
 
-def unpack_coordinates(sequential_position, num_columns=16, num_rows=10) -> tuple:
+def unpack_coordinates(sequential_position, num_columns=15, num_rows=10) -> tuple:
     """
-    Convert a sequential position number to x, y coordinates in a 16x10 arena.
+    Convert a sequential position number to x, y coordinates in a 15x10 arena.
 
     Parameters:
     - sequential_position: The sequential position (0-indexed)
@@ -366,13 +363,21 @@ def unpack_coordinates(sequential_position, num_columns=16, num_rows=10) -> tupl
 
     return x, y
 
+def highest_survivor():
+    indices = [index for index, item in enumerate(wizards) if not item.get('defeated', True)]
+    # print(f"Highest Survivor: {wizards[max(indices)]['name']}")
+    return max(indices) if indices else None
+
 def nextWizard():
     global wizards, current_wizard, num_wizards, cursor_pos, cursor_type, current_screen, messageText, turn
-    if current_wizard == num_wizards:
+
+    if current_wizard == highest_survivor():
         # New round
         current_wizard = 1
         if current_screen == GS_ARENA: turn += 1
-    else: current_wizard += 1
+    else: 
+        current_wizard += 1
+        while wizards[current_wizard]['defeated']: nextWizard()
     
     if current_screen == GS_CAST: 
         if wizards[current_wizard]['selected']: 
@@ -694,7 +699,7 @@ def cast_attempt():
         # print(f"Meditate chance: {chance * 10}%")
         if spell_test() and len(wizards[current_wizard]['spell_book']) < MAX_SPELLS:
             wizards[current_wizard]['spell_book'].append(random.choice(spell_list[2:][:-1]))
-            animations.append({'title': 'spell', 'rate': 200, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'frame_set': [("attack" + str(i), PALETTE[random.randint(1,15)]) for i in range(1,5)], 'destination': None})
+            animations.append({'title': 'spell', 'rate': 200, 'x': wizards[current_wizard]['x'], 'y': wizards[current_wizard]['y'], 'frame_set': [("attack" + str(i), PALETTE[random.randint(1,14)]) for i in range(1,5)], 'destination': None})
             spell_succeeded(1, False)
         else:
             spell_failed(False)
@@ -946,7 +951,7 @@ def cast_attempt():
 
             wizards[current_wizard]['multicast'] -= 1
             print(f"Casts remaining: {wizards[current_wizard]['multicast']}")
-            return True
+            return False
 
     elif 'dark_power_spell':
         castsRemaining = wizards[current_wizard]['multicast']
@@ -1274,7 +1279,7 @@ def handle_input(event):
                 current_screen = GS_INSPECT # Examine arena state
             elif event.key == pygame.K_4 or event.key == pygame.K_RETURN:
                 sounds.append(SND_TICK)
-                if current_wizard == num_wizards: current_screen = GS_CAST
+                if current_wizard == highest_survivor(): current_screen = GS_CAST
                 nextWizard()
 
             elif event.key == pygame.K_ESCAPE or event.key == pygame.K_BACKSPACE: 
@@ -1416,7 +1421,14 @@ def handle_input(event):
                         # Cancelling a move part way through
                         midFlight = False
                         moves_remaining = 0
-                        if selection: selection['has_moved'] = True
+                        if selection: 
+                            selection['has_moved'] = True
+                            # If a wizard is not moving, they may need to get back on their mount rather than share the cell
+                            if is_wizard(selection):
+                                mount = get_obstruction(selection['x'], selection['y'], selection)
+                                if mount:
+                                    selection['mounted'] = True
+                                    mount['has_moved'] = True
                         cursor_type = CURSOR_FRAME
                                     
                     selection = None
@@ -1478,7 +1490,7 @@ def handle_input(event):
                         # New selection
                         selection = select_at(cursor_pos[0], cursor_pos[1])
                         if selection:
-                            print(f"You selected {selection['name']}")
+                            # print(f"You selected {selection['name']}")
                             if (selection['has_moved'] or selection['owner'] != current_wizard):
                                 print('Moved or not owned')
                                 selection = None
@@ -1532,11 +1544,14 @@ def handle_input(event):
                     current_screen = GS_INFO_ARENA
             elif event.key == pygame.K_0 and current_screen == GS_ARENA and selection == None: # Must (K)cancel before ending
                 # End round or turn
-                if current_wizard == num_wizards: 
-                    # Set wizards and creations to unmoved
-                    for obj_list in [wizards, creations]: [obj.update({'has_moved': False}) for obj in obj_list]
+                
+                # Set wizards and creations to unmoved
+                for obj_list in [wizards, creations]: [obj.update({'has_moved': False}) for obj in obj_list]
+
+                if current_wizard == highest_survivor(): # End turn
                     current_screen = GS_MENU
                 nextWizard()
+
             elif current_screen == GS_INSPECT: 
                 current_screen = GS_MENU
             else: print(f"Uncaught keypress: {event.key}")
