@@ -25,4 +25,9 @@ Additionally the number keys 2-8 will toggle frame highlights for the correspond
 and the TAB key will toggle colour-coded bases.
 
 
+<hr/>
 
+### Thanks and notes:
+If you're looking for the definitive remake of Chaos, look no further than Richard Quirk's outstanding android version (<a href="https://play.google.com/store/apps/details?id=chaos.app">available at the Play Store</a>).  I'm very grateful for this version keeping Chaos alive and well, not to mention widely available.
+
+Thanks also to this Chaos disassembly project that I stumbled across at: https://zxnet.co.uk/spectrum/chaos/ 
